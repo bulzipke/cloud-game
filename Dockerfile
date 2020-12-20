@@ -25,7 +25,7 @@ COPY ./ ./
 RUN make build
 
 # base image
-FROM debian:10-slim
+FROM ubuntu:latest
 ARG BUILD_PATH
 WORKDIR /usr/local/share/cloud-game
 
