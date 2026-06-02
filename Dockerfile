@@ -23,7 +23,7 @@ ENV GIT_VERSION=${VERSION}
 
 WORKDIR ${BUILD_PATH}
 COPY . ./
-RUN --mount=type=cache,target=/root/.cache/go-build make build.coordinator && \
+RUN make build.coordinator && \
     find ./bin/* | xargs upx --best --lzma
 
 WORKDIR /usr/local/share/cloud-game
@@ -53,7 +53,7 @@ RUN apt-get -q update && apt-get -q install --no-install-recommends -y \
 
 WORKDIR ${BUILD_PATH}
 COPY . ./
-RUN --mount=type=cache,target=/root/.cache/go-build make GO_TAGS=static,st,x264s build.worker && \
+RUN make GO_TAGS=static,st,x264s build.worker && \
     find ./bin/* | xargs upx --best --lzma
 
 WORKDIR /usr/local/share/cloud-game
