@@ -8,9 +8,12 @@ import (
 	"github.com/giongto35/cloud-game/v3/pkg/config"
 )
 
-func (u *User) HandleWebrtcInit() {
-	uid := u.Id().String()
-	resp, err := u.w.WebrtcInit(uid)
+func (u *User) HandleInitWebrtcStream(rq api.InitUserWebrtcStreamRequest) {
+	if u.w == nil {
+		u.log.Warn().Msg("no worker assigned")
+		return
+	}
+	resp, err := u.w.InitWebrtcStream(u.Id().String(), rq.Initiator, rq.Sdp)
 	if err != nil || resp == nil || *resp == api.EMPTY {
 		u.log.Error().Err(err).Msg("malformed WebRTC init response")
 		return
@@ -18,12 +21,8 @@ func (u *User) HandleWebrtcInit() {
 	u.SendWebrtcOffer(string(*resp))
 }
 
-func (u *User) HandleWebrtcAnswer(rq api.WebrtcAnswerUserRequest) {
-	u.w.WebrtcAnswer(u.Id().String(), string(rq))
-}
-
-func (u *User) HandleWebrtcIceCandidate(rq api.WebrtcUserIceCandidate) {
-	u.w.WebrtcIceCandidate(u.Id().String(), string(rq))
+func (u *User) HandleWebrtcSignal(rq api.WebrtcSignalUser) {
+	u.w.WebrtcSignal(u.Id().String(), rq.Sdp, rq.Ice)
 }
 
 func (u *User) HandleStartGame(rq api.GameStartUserRequest, conf config.CoordinatorConfig) {
@@ -60,11 +59,12 @@ func (u *User) HandleStartGame(rq api.GameStartUserRequest, conf config.Coordina
 			u.Notify(api.ErrNoFreeSlots, "")
 			return
 		}
-		if rq.RoomId == "" {
-			// No room id but worker is busy -> assume user wants to continue
-			// the existing room instead of starting a parallel game.
-			rq.RoomId = u.w.RoomId
-		} else if rq.RoomId != u.w.RoomId {
+		// if rq.RoomId == "" {
+		// 	// No room id but worker is busy -> assume user wants to continue
+		// 	// the existing room instead of starting a parallel game.
+		// 	rq.RoomId = u.w.RoomId
+		// } else
+		if rq.RoomId != u.w.RoomId {
 			u.Notify(api.ErrNoFreeSlots, "")
 			return
 		}

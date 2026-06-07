@@ -69,10 +69,8 @@ func (o *Out) GetPayload() any         { return o.Payload }
 const (
 	CheckLatency     PT = 3
 	InitSession      PT = 4
-	WebrtcInit       PT = 100
-	WebrtcOffer      PT = 101
-	WebrtcAnswer     PT = 102
-	WebrtcIce        PT = 103
+	InitWebrtcStream PT = 100
+	WebrtcSignal     PT = 101
 	StartGame        PT = 104
 	QuitGame         PT = 105
 	SaveGame         PT = 106
@@ -84,7 +82,6 @@ const (
 	ResetGame        PT = 113
 	RegisterRoom     PT = 201
 	CloseRoom        PT = 202
-	IceCandidate        = WebrtcIce
 	TerminateSession PT = 204
 	AppVideoChange   PT = 150
 	LibNewGameList   PT = 205
@@ -97,14 +94,10 @@ func (p PT) String() string {
 		return "CheckLatency"
 	case InitSession:
 		return "InitSession"
-	case WebrtcInit:
-		return "WebrtcInit"
-	case WebrtcOffer:
-		return "WebrtcOffer"
-	case WebrtcAnswer:
-		return "WebrtcAnswer"
-	case WebrtcIce:
-		return "WebrtcIce"
+	case InitWebrtcStream:
+		return "InitWebrtcStream"
+	case WebrtcSignal:
+		return "WebrtcSignal"
 	case StartGame:
 		return "StartGame"
 	case ChangePlayer:

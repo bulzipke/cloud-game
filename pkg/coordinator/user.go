@@ -46,14 +46,10 @@ func (u *User) Disconnect() {
 func (u *User) HandleRequests(info HasServerInfo, conf config.CoordinatorConfig) chan struct{} {
 	return u.ProcessPackets(func(x api.In[com.Uid]) (err error) {
 		switch x.T {
-		case api.WebrtcInit:
-			if u.w != nil {
-				u.HandleWebrtcInit()
-			}
-		case api.WebrtcAnswer:
-			err = api.Do(x, u.HandleWebrtcAnswer)
-		case api.WebrtcIce:
-			err = api.Do(x, u.HandleWebrtcIceCandidate)
+		case api.InitWebrtcStream:
+			err = api.Do(x, u.HandleInitWebrtcStream)
+		case api.WebrtcSignal:
+			err = api.Do(x, u.HandleWebrtcSignal)
 		case api.StartGame:
 			err = api.Do(x, func(d api.GameStartUserRequest) { u.HandleStartGame(d, conf) })
 		case api.QuitGame:

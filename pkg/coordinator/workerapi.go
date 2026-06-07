@@ -2,19 +2,15 @@ package coordinator
 
 import "github.com/giongto35/cloud-game/v3/pkg/api"
 
-func (w *Worker) WebrtcInit(id string) (*api.WebrtcInitResponse, error) {
-	return api.UnwrapChecked[api.WebrtcInitResponse](
-		w.Send(api.WebrtcInit, api.WebrtcInitRequest{Id: id}))
+func (w *Worker) InitWebrtcStream(id string, initiator bool, sdp string) (*api.InitWebrtcStreamResponse, error) {
+	return api.UnwrapChecked[api.InitWebrtcStreamResponse](
+		w.Send(api.InitWebrtcStream, api.InitWebrtcStreamRequest{Id: id, Initiator: initiator, Sdp: sdp}))
 }
 
-func (w *Worker) WebrtcAnswer(id string, sdp string) {
-	w.Notify(api.WebrtcAnswer,
-		api.WebrtcAnswerRequest{Stateful: api.Stateful{Id: id}, Sdp: sdp})
-}
-
-func (w *Worker) WebrtcIceCandidate(id string, candidate string) {
-	w.Notify(api.WebrtcIce,
-		api.WebrtcIceCandidateRequest{Stateful: api.Stateful{Id: id}, Candidate: candidate})
+func (w *Worker) WebrtcSignal(id string, sdp, ice *string) {
+	w.Notify(api.WebrtcSignal, api.WebrtcSignalRequest{
+		Stateful: api.Stateful{Id: id}, Ice: ice, Sdp: sdp,
+	})
 }
 
 func (w *Worker) StartGame(id string, req api.GameStartUserRequest) (*api.StartGameResponse, error) {

@@ -28,7 +28,7 @@ type Decoder func(data string, obj any) error
 
 func New(log *logger.Logger, api *ApiFactory) *Peer { return &Peer{api: api, log: log} }
 
-func (p *Peer) NewCall(vCodec, aCodec string, onICECandidate func(ice any)) (sdp any, err error) {
+func (p *Peer) NewConnection(vCodec, aCodec string, onICECandidate func(ice any)) (err error) {
 	if p.conn != nil && p.conn.ConnectionState() == webrtc.PeerConnectionStateConnected {
 		return
 	}
@@ -36,75 +36,100 @@ func (p *Peer) NewCall(vCodec, aCodec string, onICECandidate func(ice any)) (sdp
 	if p.conn, err = p.api.NewPeer(); err != nil {
 		return
 	}
-	p.conn.OnICECandidate(p.handleICECandidate(onICECandidate))
-	// plug in the [video] track (out)
-	video, err := newTrack("video", "video", vCodec)
-	if err != nil {
-		return "", err
-	}
-	vs, err := p.conn.AddTrack(video)
-	if err != nil {
-		return "", err
-	}
-	// Read incoming RTCP packets
-	go func() {
-		rtcpBuf := make([]byte, 1500)
-		for {
-			_, _, rtcpErr := vs.Read(rtcpBuf)
-			if rtcpErr != nil {
-				return
-			}
+	p.conn.OnConnectionStateChange(func(pcs webrtc.PeerConnectionState) {
+		p.log.Debug().Msgf("WebRTC state change: %v", pcs)
+		if pcs == webrtc.PeerConnectionStateConnected {
+			p.log.Info().Msg("Connected")
 		}
-	}()
-	p.v = video
-	p.log.Debug().Msgf("Added [%s] track", video.Codec().MimeType)
+	})
+	p.conn.OnICECandidate(p.handleICECandidate(onICECandidate))
+
+	// plug in the [video] track (out)
+	if p.v, err = p.AddTrack("video", "video", vCodec); err != nil {
+		return err
+	}
 
 	// plug in the [audio] track (out)
-	audio, err := newTrack("audio", "audio", aCodec)
-	if err != nil {
-		return "", err
+	if p.a, err = p.AddTrack("audio", "audio", aCodec); err != nil {
+		return err
 	}
-	as, err := p.conn.AddTrack(audio)
+
+	p.conn.OnICEConnectionStateChange(p.handleICEState(func() {}))
+
+	p.conn.OnDataChannel(func(ch *webrtc.DataChannel) {
+		p.log.Debug().Msgf("Added [%s] datachannel", ch.Label())
+
+		if ch.Label() == "data" {
+			p.d = ch
+			ch.OnMessage(func(m webrtc.DataChannelMessage) {
+				if len(m.Data) == 0 || p.OnMessage == nil {
+					return
+				}
+				p.OnMessage(m.Data)
+			})
+			ch.OnOpen(func() {
+				p.log.Debug().Uint16("id", *ch.ID()).Msgf("Data channel [%v] opened", ch.Label())
+			})
+			ch.OnError(p.logx)
+			ch.OnClose(func() { p.log.Debug().Msgf("Data channel [%v] has been closed", ch.Label()) })
+		}
+	})
+
+	return nil
+}
+
+func (p *Peer) AddTrack(id, label, codec string) (*webrtc.TrackLocalStaticSample, error) {
+	track, err := newTrack(id, label, codec)
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	as, err := p.conn.AddTrack(track)
+	if err != nil {
+		return nil, err
 	}
 	// Read incoming RTCP packets
 	go func() {
-		rtcpBuf := make([]byte, 1500)
+		buf := make([]byte, 1500)
 		for {
-			_, _, rtcpErr := as.Read(rtcpBuf)
-			if rtcpErr != nil {
+			if _, _, err := as.Read(buf); err != nil {
 				return
 			}
 		}
 	}()
-	p.log.Debug().Msgf("Added [%s] track", audio.Codec().MimeType)
-	p.a = audio
+	p.log.Debug().Msgf("Added [%s] track", track.Codec().MimeType)
+	return track, nil
+}
 
-	err = p.AddChannel("data", func(data []byte) {
+func (p *Peer) AddDataChannel() error {
+	return p.AddChannel("data", func(data []byte) {
 		if len(data) == 0 || p.OnMessage == nil {
 			return
 		}
 		p.OnMessage(data)
 	})
+}
+
+func (p *Peer) OfferAnswer(offer bool) (*webrtc.SessionDescription, error) {
+	opts := webrtc.OfferAnswerOptions{ICETricklingSupported: true}
+
+	var sdp webrtc.SessionDescription
+	var err error
+
+	if offer {
+		sdp, err = p.conn.CreateOffer(&webrtc.OfferOptions{OfferAnswerOptions: opts})
+	} else {
+		sdp, err = p.conn.CreateAnswer(&webrtc.AnswerOptions{OfferAnswerOptions: opts})
+	}
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	p.log.Debug().Str("type", sdp.Type.String()).Msg("SDP")
+
+	if err = p.conn.SetLocalDescription(sdp); err != nil {
+		return nil, err
 	}
 
-	p.conn.OnICEConnectionStateChange(p.handleICEState(func() { p.log.Info().Msg("Connected") }))
-	// Stream provider supposes to send offer
-	offer, err := p.conn.CreateOffer(nil)
-	if err != nil {
-		return "", err
-	}
-	p.log.Debug().Msg("Created Offer")
-
-	err = p.conn.SetLocalDescription(offer)
-	if err != nil {
-		return "", err
-	}
-
-	return offer, nil
+	return &sdp, nil
 }
 
 func (p *Peer) SendAudio(dat []byte, dur int32) {
@@ -200,9 +225,9 @@ func (p *Peer) handleICEState(onConnect func()) func(webrtc.ICEConnectionState) 
 			p.log.Error().Msgf("WebRTC connection fail! connection: %v, ice: %v, gathering: %v, signalling: %v",
 				p.conn.ConnectionState(), p.conn.ICEConnectionState(), p.conn.ICEGatheringState(),
 				p.conn.SignalingState())
-			p.Disconnect()
-		case webrtc.ICEConnectionStateClosed,
-			webrtc.ICEConnectionStateDisconnected:
+			// make ICE restart
+		case webrtc.ICEConnectionStateDisconnected:
+		case webrtc.ICEConnectionStateClosed:
 			p.Disconnect()
 		default:
 			p.log.Debug().Msg("ICE state is not handled!")
@@ -252,7 +277,10 @@ func (p *Peer) Disconnect() {
 // addDataChannel creates new WebRTC data channel.
 // Default params -- ordered: true, negotiated: false.
 func (p *Peer) addDataChannel(label string) (*webrtc.DataChannel, error) {
-	ch, err := p.conn.CreateDataChannel(label, nil)
+	ch, err := p.conn.CreateDataChannel(label, &webrtc.DataChannelInit{
+		Ordered:        new(bool),
+		MaxRetransmits: new(uint16),
+	})
 	if err != nil {
 		return nil, err
 	}
